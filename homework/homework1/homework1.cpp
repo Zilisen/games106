@@ -97,9 +97,28 @@ public:
 	};
 
 	// A glTF material stores information in e.g. the texture that is attached to it and colors
+	/*struct Material {
+		glm::vec4 baseColorFactor = glm::vec4(1.0f);
+		uint32_t baseColorTextureIndex;
+	};*/
 	struct Material {
 		glm::vec4 baseColorFactor = glm::vec4(1.0f);
 		uint32_t baseColorTextureIndex;
+		// Parameter block used as push constant block
+		struct PushBlock {
+			float roughness;
+			float metallic;
+			float r, g, b;
+		} params;
+		std::string name;
+		Material() {};
+		Material(std::string n, glm::vec3 c, float r, float m) : name(n) {
+			params.roughness = r;
+			params.metallic = m;
+			params.r = c.r;
+			params.g = c.g;
+			params.b = c.b;
+		};
 	};
 
 	// Contains the texture for a single glTF image
