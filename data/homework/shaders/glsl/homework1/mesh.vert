@@ -20,7 +20,7 @@ layout(push_constant) uniform PushConsts {
 layout (set = 0, binding = 1) uniform UBOAnims
 {
     mat4 model;
-}UBOAnims;
+} uboAnims;
 
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec3 outColor;
@@ -33,7 +33,7 @@ void main()
 	outNormal = inNormal;
 	outColor = inColor;
 	outUV = inUV;
-	gl_Position = uboScene.projection * uboScene.view * UBOAnims.model * vec4(inPos.xyz, 1.0);
+	gl_Position = uboScene.projection * uboScene.view * primitive.model * vec4(inPos.xyz, 1.0);
 	
 	vec4 pos = uboScene.view * vec4(inPos, 1.0);
 	outNormal = mat3(uboScene.view) * inNormal;

@@ -27,7 +27,7 @@
 
 #include "vulkanexamplebase.h"
 
-#define ENABLE_VALIDATION false
+#define ENABLE_VALIDATION true
 
 // Contains everything required to render a glTF model in Vulkan
 // This class is heavily simplified (compared to glTF's feature set) but retains the basic glTF structure
@@ -95,6 +95,13 @@ public:
 			}
 		}
 	};
+
+	struct AnimData {
+		vks::Buffer bufferAnim;
+		struct UBOAnims {
+			glm::mat4 model;
+		} animModel;
+	} animData;
 
 	// A glTF material stores information in e.g. the texture that is attached to it and colors
 	/*struct Material {
@@ -293,6 +300,19 @@ public:
         }
         return nodeFound;
     }
+
+	void PrepareAnimBuffers() {
+		VK_CHECK_RESULT(vulkanDevice->createBuffer(
+			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			&animData.bufferAnim,
+			sizeof(animData.animModel)));
+		VK_CHECK_RESULT(animData.bufferAnim.map());
+		for (auto& node : nodes)
+		{
+			updateNodes(node);
+		}
+	}
     
     // POI: Load the animations from the glTF model
     void loadAnimations(tinygltf::Model &input)
@@ -554,6 +574,8 @@ public:
         }
         // Pass the final matrix to the vertex shader using push constants
         //vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &nodeMatrix);
+		// Update ssbo
+		animData.bufferAnim.copyTo(&nodeMatrix, sizeof(glm::mat4));
 
         for (auto &child : node->children)
         {
@@ -620,7 +642,7 @@ public:
         }
         for (auto &node : nodes)
         {
-            //updateNodes(node);
+            updateNodes(node);
         }
     }
 
@@ -683,9 +705,10 @@ public:
 
 	struct ShaderData {
 		vks::Buffer buffer;
+		vks::Buffer bufferAnim;
 		struct Values {
 			glm::mat4 projection;
-			glm::mat4 model;
+			glm::mat4 view;
 			glm::vec4 lightPos = glm::vec4(5.0f, 5.0f, -5.0f, 1.0f);
 			glm::vec4 viewPos;
 		} values;
@@ -731,6 +754,7 @@ public:
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.textures, nullptr);
 
 		shaderData.buffer.destroy();
+		shaderData.bufferAnim.destroy();
 	}
 
 	virtual void getEnabledFeatures()
@@ -811,6 +835,7 @@ public:
 				glTFModel.loadNode(node, glTFInput, nullptr, scene.nodes[i], indexBuffer, vertexBuffer);
 			}
             glTFModel.loadAnimations(glTFInput);
+			glTFModel.PrepareAnimBuffers();
 		}
 		else {
 			vks::tools::exitFatal("Could not open the glTF file.\n\nThe file is part of the additional asset pack.\n\nRun \"download_assets.py\" in the repository root to download the latest version.", -1);
@@ -941,8 +966,16 @@ public:
 		// Descriptor set for scene matrices
 		VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayouts.matrices, 1);
 		VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &descriptorSet));
-		VkWriteDescriptorSet writeDescriptorSet = vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &shaderData.buffer.descriptor);
-		vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);
+
+		/*VkWriteDescriptorSet writeDescriptorSet = vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &shaderData.buffer.descriptor);
+		vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);*/
+				
+		std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
+			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &shaderData.buffer.descriptor),
+			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, &glTFModel.animData.bufferAnim.descriptor),
+		};
+		vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, NULL);
+
 		// Descriptor sets for materials
 		for (auto& image : glTFModel.images) {
 			const VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayouts.textures, 1);
@@ -980,7 +1013,8 @@ public:
 		vertexInputStateCI.pVertexAttributeDescriptions = vertexInputAttributes.data();
 
 		const std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages = {
-			loadShader(getHomeworkShadersPath() + "homework1/mesh.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
+			//loadShader(getHomeworkShadersPath() + "homework1/mesh.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
+			loadShader(getHomeworkShadersPath() + "homework1/vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
 			loadShader(getHomeworkShadersPath() + "homework1/mesh.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
 		};
 
@@ -1026,7 +1060,7 @@ public:
 	void updateUniformBuffers()
 	{
 		shaderData.values.projection = camera.matrices.perspective;
-		shaderData.values.model = camera.matrices.view;
+		shaderData.values.view = camera.matrices.view;
 		shaderData.values.viewPos = camera.viewPos;
 		memcpy(shaderData.buffer.mapped, &shaderData.values, sizeof(shaderData.values));
 	}
@@ -1049,7 +1083,7 @@ public:
 			updateUniformBuffers();
 		}
         // POI: Advance animation
-        if (!paused)
+        if (bAnimation)
         {
             glTFModel.updateAnimation(frameTimer);
         }
