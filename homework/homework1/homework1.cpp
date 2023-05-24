@@ -44,6 +44,7 @@ public:
 		glm::vec3 normal;
 		glm::vec2 uv;
 		glm::vec3 color;
+        uint32_t nodeIndex;
 	};
 
 	// Single vertex buffer for all primitives
@@ -95,6 +96,13 @@ public:
 			}
 		}
 	};
+    
+    // animation needed
+    struct AnimTrans{
+        std::vector<glm::mat4> animMatrixs;
+        vks::Buffer            ssbo;
+        VkDescriptorSet        descriptorSet;
+    } animTrans;
 
 	struct AnimData {
 		vks::Buffer bufferAnim;
@@ -102,6 +110,7 @@ public:
 			glm::mat4 model;
 		} animModel;
 	} animData;
+    
 
 	// A glTF material stores information in e.g. the texture that is attached to it and colors
 	/*struct Material {
@@ -198,6 +207,8 @@ public:
 			vkDestroySampler(vulkanDevice->logicalDevice, image.texture.sampler, nullptr);
 			vkFreeMemory(vulkanDevice->logicalDevice, image.texture.deviceMemory, nullptr);
 		}
+        
+        animTrans.ssbo.destroy();
 	}
 
 	/*
@@ -301,17 +312,28 @@ public:
         return nodeFound;
     }
 
-	void PrepareAnimBuffers() {
+	void PrepareAnimBuffers(tinygltf::Model &input) {
 		VK_CHECK_RESULT(vulkanDevice->createBuffer(
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			&animData.bufferAnim,
 			sizeof(animData.animModel)));
 		VK_CHECK_RESULT(animData.bufferAnim.map());
-		for (auto& node : nodes)
-		{
-			updateNodes(node);
-		}
+        
+        animTrans.animMatrixs.resize(input.nodes.size(), glm::mat4(1.f));
+        
+        VK_CHECK_RESULT(vulkanDevice->createBuffer(
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            &animTrans.ssbo,
+            sizeof(glm::mat4) * animTrans.animMatrixs.size(),animTrans.animMatrixs.data()));
+        VK_CHECK_RESULT(animTrans.ssbo.map());
+        
+        
+        for (auto& node : nodes)
+        {
+            updateNodes(node);
+        }
 	}
     
     // POI: Load the animations from the glTF model
@@ -495,6 +517,7 @@ public:
 						vert.normal = glm::normalize(glm::vec3(normalsBuffer ? glm::make_vec3(&normalsBuffer[v * 3]) : glm::vec3(0.0f)));
 						vert.uv = texCoordsBuffer ? glm::make_vec2(&texCoordsBuffer[v * 2]) : glm::vec3(0.0f);
 						vert.color = glm::vec3(1.0f);
+                        vert.nodeIndex = nodeIndex;
 						vertexBuffer.push_back(vert);
 					}
 				}
@@ -563,7 +586,7 @@ public:
         return nodeMatrix;
     }
     
-    // POI: Update the joint matrices from the current animation frame and pass them to the GPU
+    // POI: Update the anim matrices from the current animation frame and pass them to the GPU
     void updateNodes(VulkanglTFModel::Node *node)
     {
         glm::mat4 nodeMatrix = node->getLocalMatrix();
@@ -572,10 +595,11 @@ public:
             nodeMatrix = currentParent->getLocalMatrix() * nodeMatrix;
             currentParent = currentParent->parent;
         }
-        // Pass the final matrix to the vertex shader using push constants
-        //vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &nodeMatrix);
+        
+        animTrans.animMatrixs[node->index] = nodeMatrix;
+        
 		// Update ssbo
-		animData.bufferAnim.copyTo(&nodeMatrix, sizeof(glm::mat4));
+		//animData.bufferAnim.copyTo(&nodeMatrix, sizeof(glm::mat4));
 
         for (auto &child : node->children)
         {
@@ -644,6 +668,7 @@ public:
         {
             updateNodes(node);
         }
+        animTrans.ssbo.copyTo(&animTrans.animMatrixs, sizeof(glm::mat4) * animTrans.animMatrixs.size());
     }
 
 	/*
@@ -665,6 +690,7 @@ public:
 			}
 			// Pass the final matrix to the vertex shader using push constants
 			vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &nodeMatrix);
+            animData.bufferAnim.copyTo(&nodeMatrix, sizeof(glm::mat4));
 			for (VulkanglTFModel::Primitive& primitive : node->mesh.primitives) {
 				if (primitive.indexCount > 0) {
 					// Get the texture index for this primitive
@@ -687,6 +713,7 @@ public:
 		VkDeviceSize offsets[1] = { 0 };
 		vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertices.buffer, offsets);
 		vkCmdBindIndexBuffer(commandBuffer, indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 2, 1, &animTrans.descriptorSet, 0, nullptr);
 		// Render all nodes at top-level
 		for (auto& node : nodes) {
 			drawNode(commandBuffer, pipelineLayout, node);
@@ -728,6 +755,7 @@ public:
 	struct DescriptorSetLayouts {
 		VkDescriptorSetLayout matrices;
 		VkDescriptorSetLayout textures;
+        VkDescriptorSetLayout animTrs;
 	} descriptorSetLayouts;
 
 	VulkanExample() : VulkanExampleBase(ENABLE_VALIDATION)
@@ -752,9 +780,11 @@ public:
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.matrices, nullptr);
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.textures, nullptr);
+        vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.animTrs, nullptr);
 
 		shaderData.buffer.destroy();
 		shaderData.bufferAnim.destroy();
+        
 	}
 
 	virtual void getEnabledFeatures()
@@ -835,7 +865,7 @@ public:
 				glTFModel.loadNode(node, glTFInput, nullptr, scene.nodes[i], indexBuffer, vertexBuffer);
 			}
             glTFModel.loadAnimations(glTFInput);
-			glTFModel.PrepareAnimBuffers();
+			glTFModel.PrepareAnimBuffers(glTFInput);
 		}
 		else {
 			vks::tools::exitFatal("Could not open the glTF file.\n\nThe file is part of the additional asset pack.\n\nRun \"download_assets.py\" in the repository root to download the latest version.", -1);
@@ -930,9 +960,11 @@ public:
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2),
 			// One combined image sampler per model image/texture
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<uint32_t>(glTFModel.images.size())),
+            // ssbo for animTrans
+            vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1),
 		};
 		// One set for matrices and one per model image/texture
-		const uint32_t maxSetCount = static_cast<uint32_t>(glTFModel.images.size()) + 2;
+		const uint32_t maxSetCount = static_cast<uint32_t>(glTFModel.images.size()) + 3;
 		VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes, maxSetCount);
 		VK_CHECK_RESULT(vkCreateDescriptorPool(device, &descriptorPoolInfo, nullptr, &descriptorPool));
 
@@ -944,17 +976,21 @@ public:
         // new Descriptor set layout for passing matrices
         VkDescriptorSetLayoutBinding setLayoutBindings[] = {
             vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
-            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 1)
+            vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 1),
         };
         VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings, 2);
         VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.matrices));
         
-		// Descriptor set layout for passing material textures
-        VkDescriptorSetLayoutBinding setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+        // Descriptor set layout for passing animTrans
+        VkDescriptorSetLayoutBinding setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
         descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(&setLayoutBinding, 1);
+        VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.animTrs));
+        
+		// Descriptor set layout for passing material textures
+         setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
 		VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.textures));
 		// Pipeline layout using both descriptor sets (set 0 = matrices, set 1 = material)
-		std::array<VkDescriptorSetLayout, 2> setLayouts = { descriptorSetLayouts.matrices, descriptorSetLayouts.textures };
+		std::array<VkDescriptorSetLayout, 3> setLayouts = { descriptorSetLayouts.matrices, descriptorSetLayouts.textures, descriptorSetLayouts.animTrs };
 		VkPipelineLayoutCreateInfo pipelineLayoutCI= vks::initializers::pipelineLayoutCreateInfo(setLayouts.data(), static_cast<uint32_t>(setLayouts.size()));
 		// We will use push constants to push the local matrices of a primitive to the vertex shader
 		VkPushConstantRange pushConstantRange = vks::initializers::pushConstantRange(VK_SHADER_STAGE_VERTEX_BIT, sizeof(glm::mat4), 0);
@@ -983,6 +1019,12 @@ public:
 			VkWriteDescriptorSet writeDescriptorSet = vks::initializers::writeDescriptorSet(image.descriptorSet, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 0, &image.texture.descriptor);
 			vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);
 		}
+        
+        // allocate animTrans descriptor
+        allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayouts.animTrs, 1);
+        VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &glTFModel.animTrans.descriptorSet));
+        VkWriteDescriptorSet writeDescriptorSet = vks::initializers::writeDescriptorSet(glTFModel.animTrans.descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 0, &glTFModel.animTrans.ssbo.descriptor);
+        vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);
 	}
 
 	void preparePipelines()
@@ -1005,6 +1047,7 @@ public:
 			vks::initializers::vertexInputAttributeDescription(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanglTFModel::Vertex, normal)),// Location 1: Normal
 			vks::initializers::vertexInputAttributeDescription(0, 2, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanglTFModel::Vertex, uv)),	// Location 2: Texture coordinates
 			vks::initializers::vertexInputAttributeDescription(0, 3, VK_FORMAT_R32G32B32_SFLOAT, offsetof(VulkanglTFModel::Vertex, color)),	// Location 3: Color
+            vks::initializers::vertexInputAttributeDescription(0, 4, VK_FORMAT_R32_UINT, offsetof(VulkanglTFModel::Vertex, nodeIndex)),    // Location 4: nodeIndex
 		};
 		VkPipelineVertexInputStateCreateInfo vertexInputStateCI = vks::initializers::pipelineVertexInputStateCreateInfo();
 		vertexInputStateCI.vertexBindingDescriptionCount = static_cast<uint32_t>(vertexInputBindings.size());

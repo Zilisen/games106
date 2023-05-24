@@ -4,6 +4,7 @@ layout (location = 0) in vec3 inPos;
 layout (location = 1) in vec3 inNormal;
 layout (location = 2) in vec2 inUV;
 layout (location = 3) in vec3 inColor;
+layout (location = 4) in uint inNodeIndex;
 
 layout (set = 0, binding = 0) uniform UBOScene
 {
@@ -22,6 +23,10 @@ layout (set = 0, binding = 1) uniform UBOAnims
     mat4 model;
 } uboAnims;
 
+layout (set = 2, binding = 0) readonly buffer AniMatrixs{
+	mat4 animMatrixs[];
+};
+
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec3 outColor;
 layout (location = 2) out vec2 outUV;
@@ -34,6 +39,7 @@ void main()
 	outColor = inColor;
 	outUV = inUV;
 	gl_Position = uboScene.projection * uboScene.view * primitive.model * vec4(inPos.xyz, 1.0);
+	//gl_Position = uboScene.projection * uboScene.view * animMatrixs[inNodeIndex] * vec4(inPos.xyz, 1.0);
 	
 	vec4 pos = uboScene.view * vec4(inPos, 1.0);
 	outNormal = mat3(uboScene.view) * inNormal;
