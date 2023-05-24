@@ -25,7 +25,7 @@ layout (set = 0, binding = 1) uniform UBOAnims
 
 layout (set = 2, binding = 0) readonly buffer AniMatrixs{
 	mat4 animMatrixs[];
-};
+} anims;
 
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec3 outColor;
@@ -38,8 +38,8 @@ void main()
 	outNormal = inNormal;
 	outColor = inColor;
 	outUV = inUV;
-	gl_Position = uboScene.projection * uboScene.view * primitive.model * vec4(inPos.xyz, 1.0);
-	//gl_Position = uboScene.projection * uboScene.view * animMatrixs[inNodeIndex] * vec4(inPos.xyz, 1.0);
+	//gl_Position = uboScene.projection * uboScene.view * primitive.model * vec4(inPos.xyz, 1.0);
+	gl_Position = uboScene.projection * uboScene.view * anims.animMatrixs[inNodeIndex] * vec4(inPos.xyz, 1.0);
 	
 	vec4 pos = uboScene.view * vec4(inPos, 1.0);
 	outNormal = mat3(uboScene.view) * inNormal;

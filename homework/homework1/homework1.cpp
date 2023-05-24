@@ -334,6 +334,7 @@ public:
         {
             updateNodes(node);
         }
+		animTrans.ssbo.copyTo(animTrans.animMatrixs.data(), sizeof(glm::mat4) * animTrans.animMatrixs.size());
 	}
     
     // POI: Load the animations from the glTF model
@@ -668,7 +669,7 @@ public:
         {
             updateNodes(node);
         }
-        animTrans.ssbo.copyTo(&animTrans.animMatrixs, sizeof(glm::mat4) * animTrans.animMatrixs.size());
+        animTrans.ssbo.copyTo(animTrans.animMatrixs.data(), sizeof(glm::mat4) * animTrans.animMatrixs.size());
     }
 
 	/*
@@ -682,15 +683,21 @@ public:
 			// Pass the node's matrix via push constants
 			// Traverse the node hierarchy to the top-most parent to get the final matrix of the current node
 			//glm::mat4 nodeMatrix = node->matrix;
-            glm::mat4 nodeMatrix = node->getLocalMatrix();
+			/*glm::mat4 nodeMatrix = node->getLocalMatrix();
 			VulkanglTFModel::Node* currentParent = node->parent;
 			while (currentParent) {
 				nodeMatrix = currentParent->getLocalMatrix() * nodeMatrix;
 				currentParent = currentParent->parent;
+			}*/
+			glm::mat4 nodeMatrix = node->matrix;
+			VulkanglTFModel::Node* currentParent = node->parent;
+			while (currentParent) {
+				nodeMatrix = currentParent->matrix * nodeMatrix;
+				currentParent = currentParent->parent;
 			}
 			// Pass the final matrix to the vertex shader using push constants
 			vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(glm::mat4), &nodeMatrix);
-            animData.bufferAnim.copyTo(&nodeMatrix, sizeof(glm::mat4));
+            //animData.bufferAnim.copyTo(&nodeMatrix, sizeof(glm::mat4));
 			for (VulkanglTFModel::Primitive& primitive : node->mesh.primitives) {
 				if (primitive.indexCount > 0) {
 					// Get the texture index for this primitive
@@ -1129,9 +1136,6 @@ public:
         if (bAnimation)
         {
             glTFModel.updateAnimation(frameTimer);
-        }
-        if(bAnimation){
-            buildCommandBuffers();
         }
 	}
 
