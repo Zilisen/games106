@@ -1,15 +1,29 @@
 #version 450
 
+layout (set = 0, binding = 0) uniform UBOScene
+{
+	mat4 projection;
+	mat4 view;
+	vec4 lightPos;
+	vec4 viewPos;
+} uboScene;
+
+layout (set = 0, binding = 1) uniform UBOMaterial
+{
+	vec4 baseColorFactor;
+	vec3 emissiveFactor;
+} material;
+
 layout (set = 1, binding = 0) uniform sampler2D samplerColorMap;
 layout (set = 1, binding = 1) uniform sampler2D metallicRoughnessMap;
 layout (set = 1, binding = 2) uniform sampler2D normalMap;
+layout (set = 1, binding = 3) uniform sampler2D emissiveMap;
 
 layout (location = 0) in vec3 inNormal;
 layout (location = 1) in vec3 inColor;
 layout (location = 2) in vec2 inUV;
-layout (location = 3) in vec3 inViewVec;
+layout (location = 3) in vec3 inWorldPos;
 layout (location = 4) in vec4 inTangent;
-layout (location = 5) in vec3 inLightVec;
 
 layout (location = 0) out vec4 outFragColor;
 
@@ -96,8 +110,8 @@ void main()
 {
 	//vec3 N = normalize(inNormal);
 	vec3 N = calculateNormal();
-	vec3 L = normalize(inLightVec);
-	vec3 V = normalize(inViewVec);
+	vec3 L = normalize(uboScene.lightPos.xyz - inWorldPos);
+	vec3 V = normalize(uboScene.viewPos.xyz - inWorldPos);
 
 	float metallic = texture(metallicRoughnessMap, inUV).b;
 	float roughness = texture(metallicRoughnessMap, inUV).g;

@@ -19,11 +19,6 @@ layout(push_constant) uniform PushConsts {
 	mat4 model;
 } primitive;
 
-layout (set = 0, binding = 1) uniform UBOAnims
-{
-    mat4 model;
-} uboAnims;
-
 layout (set = 2, binding = 0) readonly buffer AniMatrixs{
 	mat4 animMatrixs[];
 } anims;
@@ -31,24 +26,22 @@ layout (set = 2, binding = 0) readonly buffer AniMatrixs{
 layout (location = 0) out vec3 outNormal;
 layout (location = 1) out vec3 outColor;
 layout (location = 2) out vec2 outUV;
-layout (location = 3) out vec3 outViewVec;
+layout (location = 3) out vec3 outWorldPos;
 layout (location = 4) out vec4 outTangent;
-layout (location = 5) out vec3 outLightVec;
 
 void main() 
 {
 	outColor = inColor;
 	outUV = inUV;
-	outTangent = inTangent;
 	
 	mat4 model = anims.animMatrixs[inNodeIndex];
 	vec4 worldPos = model * vec4(inPos.xyz, 1.0);
 	gl_Position = uboScene.projection * uboScene.view * worldPos;
 
-	vec3 pos = worldPos.xyz / worldPos.w;
 
-	outNormal = transpose(inverse(mat3(model))) * inNormal;
-	vec3 lPos = mat3(uboScene.view) * uboScene.lightPos.xyz;
-	outLightVec = uboScene.lightPos.xyz - pos.xyz;
-	outViewVec = uboScene.viewPos.xyz - pos.xyz;	
+	outWorldPos = vec3(worldPos);
+
+	//outNormal = transpose(inverse(mat3(model))) * inNormal;
+	outNormal = mat3(model) * inNormal;
+	outTangent = vec4(mat3(model) * inTangent.xyz, inTangent.w);
 }

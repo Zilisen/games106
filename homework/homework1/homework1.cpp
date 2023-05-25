@@ -43,7 +43,7 @@ public:
 		glm::vec3 pos;
 		glm::vec3 normal;
 		glm::vec2 uv;
-		glm::vec3 color;
+		glm::vec3 color; // rgb , a : nodeIndex
         glm::vec4 tangent;
         uint32_t nodeIndex;
 	};
@@ -105,12 +105,12 @@ public:
         VkDescriptorSet        descriptorSet;
     } animTrans;
 
-	struct AnimData {
-		vks::Buffer bufferAnim;
-		struct UBOAnims {
-			glm::mat4 model;
-		} animModel;
-	} animData;
+	//struct AnimData {
+	//	vks::Buffer bufferAnim;
+	//	struct UBOAnims {
+	//		glm::mat4 model;
+	//	} animModel;
+	//} animData;
     
 
 	// A glTF material stores information in e.g. the texture that is attached to it and colors
@@ -122,8 +122,8 @@ public:
 		glm::vec4 baseColorFactor = glm::vec4(1.0f);
 		uint32_t baseColorTextureIndex;
         uint32_t metallicRoughnessTextureIndex;
-        Float32 metallicFactor = 1.0f;
-        Float32 roughnessFactor = 0.0f;
+        float metallicFactor = 1.0f;
+		float roughnessFactor = 0.0f;
         uint32_t normalTextureIndex;
         
         // to add ... occlusionTexture , emissiveTexture, emissiveFactor
@@ -325,12 +325,12 @@ public:
     }
 
 	void PrepareAnimBuffers(tinygltf::Model &input) {
-		VK_CHECK_RESULT(vulkanDevice->createBuffer(
+		/*VK_CHECK_RESULT(vulkanDevice->createBuffer(
 			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			&animData.bufferAnim,
 			sizeof(animData.animModel)));
-		VK_CHECK_RESULT(animData.bufferAnim.map());
+		VK_CHECK_RESULT(animData.bufferAnim.map());*/
         
         animTrans.animMatrixs.resize(input.nodes.size(), glm::mat4(1.f));
         
@@ -523,6 +523,9 @@ public:
 						const tinygltf::BufferView& view = input.bufferViews[accessor.bufferView];
 						texCoordsBuffer = reinterpret_cast<const float*>(&(input.buffers[view.buffer].data[accessor.byteOffset + view.byteOffset]));
 					}
+
+					// load baseColor Factor
+
                     // load tangent
                     if (glTFPrimitive.attributes.find("TANGENT") != glTFPrimitive.attributes.end())
                     {
@@ -760,16 +763,12 @@ public:
 
 	struct ShaderData {
 		vks::Buffer buffer;
-		vks::Buffer bufferAnim;
 		struct Values {
 			glm::mat4 projection;
 			glm::mat4 view;
 			glm::vec4 lightPos = glm::vec4(5.0f, 5.0f, -5.0f, 1.0f);
 			glm::vec4 viewPos;
 		} values;
-        struct UBOAnims{
-            glm::mat4 model;
-        } UBOAnims;
 	} shaderData;
 
 	struct Pipelines {
@@ -811,7 +810,7 @@ public:
         vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.animTrs, nullptr);
 
 		shaderData.buffer.destroy();
-		shaderData.bufferAnim.destroy();
+		//shaderData.bufferAnim.destroy();
         
 	}
 
@@ -985,7 +984,7 @@ public:
 		*/
 
 		std::vector<VkDescriptorPoolSize> poolSizes = {
-			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2),
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 4),
 			// One combined image sampler per model image/texture
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<uint32_t>(glTFModel.materials.size() * 3)),
             // ssbo for animTrans
@@ -993,25 +992,24 @@ public:
 		};
         
 		// One set for matrices and one per model image/texture
-		const uint32_t maxSetCount = static_cast<uint32_t>(glTFModel.images.size()) + 3;
+		const uint32_t maxSetCount = static_cast<uint32_t>(glTFModel.images.size()) + 5;
 		VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes, maxSetCount);
 		VK_CHECK_RESULT(vkCreateDescriptorPool(device, &descriptorPoolInfo, nullptr, &descriptorPool));
 
 		// Descriptor set layout for passing matrices
-//		VkDescriptorSetLayoutBinding setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
-//		VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(&setLayoutBinding, 1);
-//		VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.matrices));
+		VkDescriptorSetLayoutBinding setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+		VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(&setLayoutBinding, 1);
+		VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.matrices));
         
-        // new Descriptor set layout for passing matrices
-        VkDescriptorSetLayoutBinding setLayoutBindings[] = {
+        /*VkDescriptorSetLayoutBinding setLayoutBindings[] = {
             vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
             vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 1),
         };
         VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(setLayoutBindings, 2);
-        VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.matrices));
+        VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.matrices));*/
         
         // Descriptor set layout for passing animTrans
-        VkDescriptorSetLayoutBinding setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+        setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
         descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(&setLayoutBinding, 1);
         VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.animTrs));
         
@@ -1043,7 +1041,6 @@ public:
 		vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);*/
 		std::vector<VkWriteDescriptorSet> writeDescriptorSets = {
 			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 0, &shaderData.buffer.descriptor),
-			vks::initializers::writeDescriptorSet(descriptorSet, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, &glTFModel.animData.bufferAnim.descriptor),
 		};
 		vkUpdateDescriptorSets(device, static_cast<uint32_t>(writeDescriptorSets.size()), writeDescriptorSets.data(), 0, NULL);
 
@@ -1102,8 +1099,8 @@ public:
 		vertexInputStateCI.pVertexAttributeDescriptions = vertexInputAttributes.data();
 
 		const std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages = {
-			//loadShader(getHomeworkShadersPath() + "homework1/mesh.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
-			loadShader(getHomeworkShadersPath() + "homework1/vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
+			loadShader(getHomeworkShadersPath() + "homework1/mesh.vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
+			//loadShader(getHomeworkShadersPath() + "homework1/vert.spv", VK_SHADER_STAGE_VERTEX_BIT),
 			loadShader(getHomeworkShadersPath() + "homework1/mesh.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
 		};
 
