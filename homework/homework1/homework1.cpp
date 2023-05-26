@@ -304,8 +304,8 @@ public:
             }
             
             // Get the emissive factor
-            if (glTFMaterial.additionalValues.find("emissiveFactor") != glTFMaterial.values.end()) {
-                materials[i].matFactors.values.emissiveFactor = glm::make_vec4(glTFMaterial.additionalValues["emissiveFactor"].ColorFactor().data());
+            if (glTFMaterial.additionalValues.find("emissiveFactor") != glTFMaterial.additionalValues.end()) {
+                materials[i].matFactors.values.emissiveFactor = glm::make_vec3(glTFMaterial.additionalValues["emissiveFactor"].ColorFactor().data());
             }
             // Get the emissive texture index
             if (glTFMaterial.emissiveTexture.index != -1) {
