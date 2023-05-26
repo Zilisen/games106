@@ -6,18 +6,21 @@ layout (set = 0, binding = 0) uniform UBOScene
 	mat4 view;
 	vec4 lightPos;
 	vec4 viewPos;
+	vec3 pbrSetting; // r-normalmap, g-tonemapping, b-emissive
 } uboScene;
-
-layout (set = 0, binding = 1) uniform UBOMaterial
-{
-	vec4 baseColorFactor;
-	vec3 emissiveFactor;
-} material;
 
 layout (set = 1, binding = 0) uniform sampler2D samplerColorMap;
 layout (set = 1, binding = 1) uniform sampler2D metallicRoughnessMap;
 layout (set = 1, binding = 2) uniform sampler2D normalMap;
 layout (set = 1, binding = 3) uniform sampler2D emissiveMap;
+layout (set = 1, binding = 4) uniform sampler2D occlusionMap;
+
+layout (set = 3, binding = 0) uniform UBOMaterial
+{
+	vec4 baseColorFactor;
+	vec3 emissiveFactor;
+	vec3 metallicRoughness; // r-meta ; g-rough
+} material;
 
 layout (location = 0) in vec3 inNormal;
 layout (location = 1) in vec3 inColor;
@@ -31,7 +34,7 @@ const float PI = 3.14159265359;
 
 vec3 materialcolor()
 {
-	return texture(samplerColorMap, inUV).rgb;
+	return texture(samplerColorMap, inUV).rgb * material.baseColorFactor.rbg;
 }
 
 // Normal Distribution function --------------------------------------
@@ -108,8 +111,8 @@ vec3 calculateNormal()
 
 void main() 
 {
-	//vec3 N = normalize(inNormal);
-	vec3 N = calculateNormal();
+	vec3 N = normalize(inNormal);
+	N = N + uboScene.pbrSetting.x * (calculateNormal() - N);
 	vec3 L = normalize(uboScene.lightPos.xyz - inWorldPos);
 	vec3 V = normalize(uboScene.viewPos.xyz - inWorldPos);
 
@@ -124,8 +127,27 @@ void main()
 	vec3 color = materialcolor() * 0.02;
 	color += Lo;
 
+	// emissive color
+	vec3 emissiveColor = texture(emissiveMap, inUV).rgb * material.emissiveFactor * uboScene.pbrSetting.b;
+	color += emissiveColor;
+
 	// Gamma correct
 	color = pow(color, vec3(0.4545));
 
 	outFragColor = vec4(color, 1.0);	
 }
+
+// void main() 
+// {
+// 	vec4 color = texture(samplerColorMap, inUV) * vec4(inColor, 1.0);
+
+// 	//vec3 N = normalize(inNormal);
+// 	vec3 N = calculateNormal();
+// 	vec3 L = normalize(uboScene.lightPos.xyz - inWorldPos);
+// 	vec3 V = normalize(uboScene.viewPos.xyz - inWorldPos);
+// 	vec3 R = reflect(L, N);
+// 	vec3 diffuse = max(dot(N, L), 0.15) * inColor;
+// 	vec3 specular = pow(max(dot(R, V), 0.0), 16.0) * vec3(0.75);
+// 	outFragColor = vec4(diffuse * color.rgb + specular, 1.0);		
+// 	//outFragColor = vec4(N.xyz, 1.0);
+// }
