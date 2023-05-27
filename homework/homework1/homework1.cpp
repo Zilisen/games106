@@ -792,8 +792,8 @@ public:
 	bool wireframe = false;
     bool bAnimation = true;
     bool bUseNormalMap = true;
-    bool bUseToneMapping = true;
-    bool bEmissive = false;
+    bool bUseToneMapping = false;
+    bool bEmissive = true;
 
 	VulkanglTFModel glTFModel;
 
@@ -814,16 +814,24 @@ public:
         VkPipeline toneMapping = VK_NULL_HANDLE;
 	} pipelines;
 
-	VkPipelineLayout pipelineLayout;
-    VkPipelineLayout postpipelineLayout;
+	//VkPipelineLayout pipelineLayout;
+    struct {
+        VkPipelineLayout pipelineLayout;
+        VkPipelineLayout postpipelineLayout;
+    } pipelineLayouts;
+    
+    //VkPipelineLayout postpipelineLayout;
 	VkDescriptorSet descriptorSet;
+    VkDescriptorSet tonemappingSet;
 
 	struct DescriptorSetLayouts {
 		VkDescriptorSetLayout matrices;
 		VkDescriptorSetLayout textures;
         VkDescriptorSetLayout animTrs;
         VkDescriptorSetLayout materials;
+        VkDescriptorSetLayout postTex;
 	} descriptorSetLayouts;
+    
 
 	VulkanExample() : VulkanExampleBase(ENABLE_VALIDATION)
 	{
@@ -843,8 +851,13 @@ public:
 		if (pipelines.wireframe != VK_NULL_HANDLE) {
 			vkDestroyPipeline(device, pipelines.wireframe, nullptr);
 		}
+        if (pipelines.toneMapping != VK_NULL_HANDLE) {
+            vkDestroyPipeline(device, pipelines.toneMapping, nullptr);
+        }
+        
 
-		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+		vkDestroyPipelineLayout(device, pipelineLayouts.pipelineLayout, nullptr);
+        vkDestroyPipelineLayout(device, pipelineLayouts.postpipelineLayout, nullptr);
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.matrices, nullptr);
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.textures, nullptr);
         vkDestroyDescriptorSetLayout(device, descriptorSetLayouts.animTrs, nullptr);
@@ -892,11 +905,25 @@ public:
 			vkCmdSetViewport(drawCmdBuffers[i], 0, 1, &viewport);
 			vkCmdSetScissor(drawCmdBuffers[i], 0, 1, &scissor);
 			// Bind scene matrices descriptor to set 0
-			vkCmdBindDescriptorSets(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
+			vkCmdBindDescriptorSets(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 			vkCmdBindPipeline(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, wireframe ? pipelines.wireframe : pipelines.solid);
-			glTFModel.draw(drawCmdBuffers[i], pipelineLayout);
+			glTFModel.draw(drawCmdBuffers[i], pipelineLayouts.pipelineLayout);
 			drawUI(drawCmdBuffers[i]);
 			vkCmdEndRenderPass(drawCmdBuffers[i]);
+            
+//            if(bUseToneMapping){
+//
+//                vkCmdBeginRenderPass(drawCmdBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+//                vkCmdSetViewport(drawCmdBuffers[i], 0, 1, &viewport);
+//                vkCmdSetScissor(drawCmdBuffers[i], 0, 1, &scissor);
+//                vkCmdBindDescriptorSets(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayouts.postpipelineLayout, 0, 1, &descriptorSet, 0, NULL);
+//                vkCmdBindPipeline(drawCmdBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipelines.toneMapping);
+//                vkCmdDraw(drawCmdBuffers[i], 3, 1, 0, 0);
+//                drawUI(drawCmdBuffers[i]);
+//                vkCmdEndRenderPass(drawCmdBuffers[i]);
+//            }
+            
+            
 			VK_CHECK_RESULT(vkEndCommandBuffer(drawCmdBuffers[i]));
 		}
 	}
@@ -1027,13 +1054,13 @@ public:
 		std::vector<VkDescriptorPoolSize> poolSizes = {
 			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, static_cast<uint32_t>(2 + glTFModel.materials.size())),
 			// One combined image sampler per model image/texture
-			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<uint32_t>(5 * glTFModel.materials.size())),
+			vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, static_cast<uint32_t>(5 * glTFModel.materials.size()) + 1),
             // ssbo for animTrans
             vks::initializers::descriptorPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1),
 		};
         
 		// One set for matrices and one per model image/texture
-		const uint32_t maxSetCount = static_cast<uint32_t>(glTFModel.images.size()) + 5;
+		const uint32_t maxSetCount = static_cast<uint32_t>(glTFModel.images.size()) + 6;
 		VkDescriptorPoolCreateInfo descriptorPoolInfo = vks::initializers::descriptorPoolCreateInfo(poolSizes, maxSetCount);
 		VK_CHECK_RESULT(vkCreateDescriptorPool(device, &descriptorPoolInfo, nullptr, &descriptorPool));
 
@@ -1052,6 +1079,11 @@ public:
         VkDescriptorSetLayoutBinding setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
         descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(&setLayoutBinding, 1);
         VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.animTrs));
+        
+        // Descriptor set layout for passing postprocess textures
+        setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+        descriptorSetLayoutCI = vks::initializers::descriptorSetLayoutCreateInfo(&setLayoutBinding, 1);
+        VK_CHECK_RESULT(vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCI, nullptr, &descriptorSetLayouts.postTex));
         
 		// Descriptor set layout for passing material textures
         //setLayoutBinding = vks::initializers::descriptorSetLayoutBinding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 0);
@@ -1079,7 +1111,7 @@ public:
 		// Push constant ranges are part of the pipeline layout
 		pipelineLayoutCI.pushConstantRangeCount = 1;
 		pipelineLayoutCI.pPushConstantRanges = &pushConstantRange;
-		VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayout));
+		VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayouts.pipelineLayout));
 
 		// Descriptor set for scene matrices
 		VkDescriptorSetAllocateInfo allocInfo = vks::initializers::descriptorSetAllocateInfo(descriptorPool, &descriptorSetLayouts.matrices, 1);
@@ -1127,7 +1159,14 @@ public:
         VK_CHECK_RESULT(vkAllocateDescriptorSets(device, &allocInfo, &glTFModel.animTrans.descriptorSet));
         VkWriteDescriptorSet writeDescriptorSet = vks::initializers::writeDescriptorSet(glTFModel.animTrans.descriptorSet, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 0, &glTFModel.animTrans.ssbo.descriptor);
         vkUpdateDescriptorSets(device, 1, &writeDescriptorSet, 0, nullptr);
+        
+        
+        // tone mapping pipeline layout create
+        pipelineLayoutCI = vks::initializers::pipelineLayoutCreateInfo(&descriptorSetLayouts.textures, 1);
+        VK_CHECK_RESULT(vkCreatePipelineLayout(device, &pipelineLayoutCI, nullptr, &pipelineLayouts.postpipelineLayout));
+
 	}
+       
 
 	void preparePipelines()
 	{
@@ -1166,7 +1205,7 @@ public:
 			loadShader(getHomeworkShadersPath() + "homework1/mesh.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
 		};
 
-		VkGraphicsPipelineCreateInfo pipelineCI = vks::initializers::pipelineCreateInfo(pipelineLayout, renderPass, 0);
+		VkGraphicsPipelineCreateInfo pipelineCI = vks::initializers::pipelineCreateInfo(pipelineLayouts.pipelineLayout, renderPass, 0);
 		pipelineCI.pVertexInputState = &vertexInputStateCI;
 		pipelineCI.pInputAssemblyState = &inputAssemblyStateCI;
 		pipelineCI.pRasterizationState = &rasterizationStateCI;
@@ -1213,7 +1252,7 @@ public:
             loadShader(getHomeworkShadersPath() + "homework1/tonemapping.frag.spv", VK_SHADER_STAGE_FRAGMENT_BIT)
         };
 
-        VkGraphicsPipelineCreateInfo pipelineCI = vks::initializers::pipelineCreateInfo(postpipelineLayout, renderPass, 0);
+        VkGraphicsPipelineCreateInfo pipelineCI = vks::initializers::pipelineCreateInfo(pipelineLayouts.postpipelineLayout, renderPass, 0);
         pipelineCI.pVertexInputState = &emptyInputState;
         pipelineCI.pInputAssemblyState = &inputAssemblyStateCI;
         pipelineCI.pRasterizationState = &rasterizationStateCI;
@@ -1309,6 +1348,7 @@ public:
             if (overlay->checkBox("NormalMap", &bUseNormalMap)) {
             }
             if (overlay->checkBox("ToneMapping", &bUseToneMapping)) {
+                buildCommandBuffers();
             }
             if (overlay->checkBox("Emissive", &bEmissive)) {
             }

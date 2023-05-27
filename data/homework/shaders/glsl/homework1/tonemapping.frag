@@ -1,6 +1,8 @@
 #version 450
 
+layout (location = 0) in vec2 inUV;
 
+layout (set = 0, binding = 0) uniform sampler2D originColor;
 
 // tonemap 所使用的函数
 vec3 Tonemap_ACES(const vec3 c) {
@@ -20,7 +22,13 @@ vec3 Tonemap_ACES(const vec3 c) {
 
 layout (location = 0) out vec4 outFragColor;
 
-void main() 
+void main()
 {
-	outFragColor = vec4(1.0);		
+    vec3 color = texture(originColor, inUV).rgb;
+#ifdef ENABLE_TONE_MAPPING
+    color = Tonemap_ACES(color);
+#endif
+    const float invGamma = 0.45454545;
+    color = pow(color, vec3(invGamma));
+    outFragColor = vec4(color, 1.0f);
 }
